@@ -3,7 +3,6 @@ package p2p
 import (
 	"fmt"
 	"net"
-	"sync"
 )
 
 // TCPPeer represent the remote node over TCP establised connection.
@@ -23,20 +22,22 @@ func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 	}
 }
 
+// Close implements the Peer interface which will close the underlying connection
+func (p *TCPPeer) Close() error {
+	return p.conn.Close()
+}
+
 type TCPTransportOpts struct {
 	ListenAddr    string
 	HandshakeFunc HandshakeFunc
 	Decoder       Decoder
+	OnPeer        func(Peer) error
 }
 
 type TCPTransport struct {
 	TCPTransportOpts
 	listener net.Listener
 	rpcch    chan RPC
-
-	// * it is common in go to put a mutex on top of the thing we wanted to protect
-	mu    sync.RWMutex
-	peers map[net.Addr]Peer
 }
 
 func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
@@ -82,7 +83,24 @@ type Temp struct {
 }
 
 func (t *TCPTransport) handleConn(conn net.Conn) {
+	var err error
+
+	defer func() {
+		fmt.Println("droping peer connection %s", err)
+		conn.Close()
+	}()
+
 	peer := NewTCPPeer(conn, true)
+
+	if err = t.HandshakeFunc(peer); err != nil {
+		return
+	}
+
+	if t.OnPeer != nil {
+		if err := t.OnPeer(peer); err != nil {
+			return
+		}
+	}
 
 	if err := t.HandshakeFunc(peer); err != nil {
 		conn.Close()
@@ -91,15 +109,16 @@ func (t *TCPTransport) handleConn(conn net.Conn) {
 	}
 
 	// * Read the incoming message
-	rpc := &RPC{}
+	rpc := RPC{}
 	for {
-		if err := t.Decoder.Decode(conn, rpc); err != nil {
+		err := t.Decoder.Decode(conn, &rpc)
+
+		if err != nil {
 			fmt.Printf("tcp error: %s\n", err)
-			continue
+			return
 		}
 
 		rpc.From = conn.RemoteAddr()
-
-		fmt.Printf("message: %+v\n", rpc)
+		t.rpcch <- rpc
 	}
 }
