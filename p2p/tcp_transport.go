@@ -23,31 +23,38 @@ func NewTCPPeer(conn net.Conn, outbound bool) *TCPPeer {
 	}
 }
 
+type TCPTransportOpts struct {
+	ListenAddr    string
+	HandshakeFunc HandshakeFunc
+	Decoder       Decoder
+}
+
 type TCPTransport struct {
-	listenAddress string
-	listener      net.Listener
-	handshakeFunc HandshakeFunc
+	TCPTransportOpts
+	listener net.Listener
+	rpcch    chan RPC
 
 	// * it is common in go to put a mutex on top of the thing we wanted to protect
 	mu    sync.RWMutex
 	peers map[net.Addr]Peer
 }
 
-func NOPHandshake(any) error {
-	return nil
+func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
+	return &TCPTransport{
+		TCPTransportOpts: opts,
+		rpcch:            make(chan RPC),
+	}
 }
 
-func NewTCPTransport(listenerAdddr string) *TCPTransport {
-	return &TCPTransport{
-		handshakeFunc: NOPHandshake,
-		listenAddress: listenerAdddr,
-	}
+// Consume implements the Transport interface which will return read only channel for reading incoming messages received from another peer in the network
+func (t *TCPTransport) Consume() <-chan RPC {
+	return t.rpcch
 }
 
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 
-	t.listener, err = net.Listen("tcp", t.listenAddress)
+	t.listener, err = net.Listen("tcp", t.ListenAddr)
 	if err != nil {
 		return err
 	}
@@ -65,12 +72,34 @@ func (t *TCPTransport) startAcceptLoop() error {
 			fmt.Printf("TCP error: %v", err)
 		}
 
+		fmt.Printf("new incoming connection from %s\n", conn)
+
 		go t.handleConn(conn)
 	}
+}
+
+type Temp struct {
 }
 
 func (t *TCPTransport) handleConn(conn net.Conn) {
 	peer := NewTCPPeer(conn, true)
 
-	fmt.Printf("New incoming connection %+v\n", peer)
+	if err := t.HandshakeFunc(peer); err != nil {
+		conn.Close()
+		fmt.Printf("TCP handshake error: %s\n", err)
+		return
+	}
+
+	// * Read the incoming message
+	rpc := &RPC{}
+	for {
+		if err := t.Decoder.Decode(conn, rpc); err != nil {
+			fmt.Printf("tcp error: %s\n", err)
+			continue
+		}
+
+		rpc.From = conn.RemoteAddr()
+
+		fmt.Printf("message: %+v\n", rpc)
+	}
 }
