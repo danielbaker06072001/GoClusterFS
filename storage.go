@@ -109,7 +109,7 @@ func (s *Store) Delete(key string) error {
 }
 
 func (s *Store) Write(key string, r io.Reader) error {
-	return s.writeStrean(key, r)
+	return s.writeStream(key, r)
 }
 
 func (s *Store) Read(key string) (io.Reader, error) {
@@ -136,7 +136,7 @@ func (s *Store) readStream(key string) (io.ReadCloser, error) {
 	return os.Open(fullPathWithRoot)
 }
 
-func (s *Store) writeStrean(key string, r io.Reader) error {
+func (s *Store) writeStream(key string, r io.Reader) error {
 	pathKey := s.PathTransformFunc(key)
 	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.Pathname)
 

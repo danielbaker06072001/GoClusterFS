@@ -1,10 +1,13 @@
 package p2p
 
+import "net"
+
 // * Peer is an interface that represents the
 // remote node in the network
 // Example : it can be a dude or a girl that we're connecting to
 type Peer interface {
-	Close() error
+	net.Conn
+	Send([]byte) error
 }
 
 // * Transport is anything that handles the communication

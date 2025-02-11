@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"log"
+	"time"
 
 	"github.com/danielbaker06072001/foreverstore/p2p"
 )
@@ -11,29 +14,36 @@ func makeServer(listenAddr string, nodes ...string) *FileServer {
 		ListenAddr:    listenAddr,
 		HandshakeFunc: p2p.NOPHandshakeFunc,
 		Decoder:       p2p.DefaultDecoder{},
-
-		// todo: ONPEER FUNC
 	}
 	tcpTransport := p2p.NewTCPTransport(tcpTransportOpts)
 
 	fileServerOpts := FileServerOpts{
-		StorageRoot:       listenAddr + "_network",
+		StorageRoot:       fmt.Sprintf("%s_network", listenAddr[1:]),
 		PathTransformFunc: CASPathTransformFunc,
 		Transport:         tcpTransport,
 		BootstrapNodes:    nodes,
 	}
 
-	return NewFileServer(fileServerOpts)
+	s := NewFileServer(fileServerOpts)
+	tcpTransport.OnPeer = s.OnPeer
+
+	return s
 }
 
 func main() {
-	s1 := makeServer(":3000", ":4000")
-	s2 := makeServer(":4000", ":3000")
+	s1 := makeServer(":5001", "")
+	s2 := makeServer(":5002", ":5001")
 
 	go func() {
 		log.Fatal(s1.Start())
 	}()
 
-	s2.Start()
+	time.Sleep(1 * time.Second)
+	go s2.Start()
+	time.Sleep(1 * time.Second)
 
+	data := bytes.NewReader([]byte("super large data file!"))
+	s2.StoreData("myprivatedata", data)
+
+	select {}
 }
